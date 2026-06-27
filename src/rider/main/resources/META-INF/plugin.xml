@@ -1,15 +1,11 @@
 <idea-plugin require-restart="true">
-  <id>com.jetbrains.rider.plugins.mediocre</id>
+  <id>Mediocre</id>
   <name>Mediocre</name>
   <version>_PLACEHOLDER_</version>
-  <vendor url="https://project-url">Author</vendor>
+  <vendor url="https://github.com/Advitalitum/Mediocre">Advitalitum</vendor>
   <idea-version since-build="_PLACEHOLDER_" until-build="_PLACEHOLDER_" />
   <depends>com.intellij.modules.rider</depends>
 
-  <description>
-<![CDATA[
-<p>Sample description</p>
-]]>
-  </description>
+  <description>Finds declaration of C# generated class and his members in .proto file</description>
 
 </idea-plugin>
