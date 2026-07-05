@@ -12,21 +12,22 @@ public static class MediocreSearchHelper
         DeclaredElementTypeUsageInfo initialTarget,
         IDeclaredElement declaredElement)
     {
-        if (declaredElement is not IMethod method
-            || method.ShortName != "Send"
-            || method.TypeParametersCount != 1
-            || method.ContainingType is not IInterface @interface
-            || @interface.GetContainingNamespace().ShortName != "MediatR"
-            || method.Parameters.Count < 1
-            || method.Parameters[0].Type.GetTypeElement() is not IInterface parameterInterface
-            || parameterInterface.ShortName != "IRequest"
-            || parameterInterface.GetContainingNamespace().ShortName != "MediatR"
-            || parameterInterface.TypeParametersCount != 1)
+        if (IsNotMediatRSendMethod(declaredElement))
         {
             return null;
         }
+        
+        var method = (IMethod) declaredElement;
 
-        var psiModule = @interface.Module;
+        var requestHandlerResponseType = initialTarget
+            .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
+
+        if (requestHandlerResponseType is null or IInterface)
+        {
+            return null;
+        }
+        
+        var psiModule = method.Module;
 
         var scope = psiModule
             .GetPsiServices()
@@ -49,14 +50,6 @@ public static class MediocreSearchHelper
         var requestHandlerImplementations = declaredElement.GetPsiServices().SingleThreadedFinder
             .FindAllInheritors(requestHandlerInterfaceType);
 
-        var requestHandlerResponseType = initialTarget
-            .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
-
-        if (requestHandlerResponseType is null)
-        {
-            return null;
-        }
-
         var resultDeclaredElement = requestHandlerImplementations.Select(target => target.GetTypeElement())
             .Where(e => e is not null)
             .SelectMany(e =>
@@ -70,5 +63,19 @@ public static class MediocreSearchHelper
             .FirstOrDefault();
 
         return resultDeclaredElement;
+    }
+
+    private static bool IsNotMediatRSendMethod(IDeclaredElement declaredElement)
+    {
+        return declaredElement is not IMethod method
+               || method.ShortName != "Send"
+               || method.TypeParametersCount != 1
+               || method.ContainingType is not IInterface @interface
+               || @interface.GetContainingNamespace().ShortName != "MediatR"
+               || method.Parameters.Count < 1
+               || method.Parameters[0].Type.GetTypeElement() is not IInterface parameterInterface
+               || parameterInterface.ShortName != "IRequest"
+               || parameterInterface.GetContainingNamespace().ShortName != "MediatR"
+               || parameterInterface.TypeParametersCount != 1;
     }
 }
