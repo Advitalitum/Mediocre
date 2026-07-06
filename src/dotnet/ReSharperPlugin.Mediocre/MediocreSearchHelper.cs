@@ -1,6 +1,7 @@
 using System.Linq;
 using JetBrains.ReSharper.Feature.Services.Navigation.ContextNavigation;
 using JetBrains.ReSharper.Psi;
+using JetBrains.ReSharper.Psi.CSharp;
 using JetBrains.ReSharper.Psi.Search;
 using JetBrains.ReSharper.Psi.Util;
 
@@ -12,12 +13,12 @@ public static class MediocreSearchHelper
         DeclaredElementTypeUsageInfo initialTarget,
         IDeclaredElement declaredElement)
     {
-        if (IsNotMediatRSendMethod(declaredElement))
+        if (IsMediatRSendMethod(declaredElement) is false)
         {
             return null;
         }
-        
-        var method = (IMethod) declaredElement;
+
+        var method = (IMethod)declaredElement;
 
         var requestHandlerResponseType = initialTarget
             .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
@@ -26,7 +27,7 @@ public static class MediocreSearchHelper
         {
             return null;
         }
-        
+
         var psiModule = method.Module;
 
         var scope = psiModule
@@ -34,21 +35,23 @@ public static class MediocreSearchHelper
             .Symbols
             .GetSymbolScope(psiModule, true, true);
 
-        var requestHandlerTypeElement = scope
+        var requestHandlerTypeElements = scope
             .GetAllShortNames()
             .Where(s => s.StartsWith("IRequestHandler"))
             .SelectMany(scope.GetElementsByShortName)
-            .FirstOrDefault(e => e is IInterface) as ITypeElement;
+            .Where(e => e is IInterface)
+            .OfType<ITypeElement>()
+            .ToArray();
 
-        if (requestHandlerTypeElement is null)
+        if (requestHandlerTypeElements.Any() is false)
         {
             return null;
         }
 
-        var requestHandlerInterfaceType = TypeFactory.CreateType(requestHandlerTypeElement);
+        var requestHandlerInterfaceTypes = requestHandlerTypeElements.Select(TypeFactory.CreateType);
 
-        var requestHandlerImplementations = declaredElement.GetPsiServices().SingleThreadedFinder
-            .FindAllInheritors(requestHandlerInterfaceType);
+        var requestHandlerImplementations = requestHandlerInterfaceTypes
+            .SelectMany(x => declaredElement.GetPsiServices().SingleThreadedFinder.FindAllInheritors(x));
 
         var resultDeclaredElement = requestHandlerImplementations.Select(target => target.GetTypeElement())
             .Where(e => e is not null)
@@ -56,8 +59,10 @@ public static class MediocreSearchHelper
                 e.Methods
                     .Where(x =>
                         x.ShortName == "Handle"
-                        && x.ReturnType.IsGenericTask(out var responseType)
-                        && requestHandlerResponseType.Equals(responseType.GetTypeElement())
+                        && (
+                            (x.ReturnType.IsGenericTask(out var responseType) && requestHandlerResponseType.Equals(responseType.GetTypeElement()))
+                            || (x.ReturnType.IsTask() && x.Parameters.Count >= 1 && requestHandlerResponseType.Equals(x.Parameters[0].Type.GetTypeElement()))
+                        )
                     )
             )
             .FirstOrDefault();
@@ -65,17 +70,20 @@ public static class MediocreSearchHelper
         return resultDeclaredElement;
     }
 
-    private static bool IsNotMediatRSendMethod(IDeclaredElement declaredElement)
+    private static bool IsMediatRSendMethod(IDeclaredElement declaredElement)
     {
-        return declaredElement is not IMethod method
-               || method.ShortName != "Send"
-               || method.TypeParametersCount != 1
-               || method.ContainingType is not IInterface @interface
-               || @interface.GetContainingNamespace().ShortName != "MediatR"
-               || method.Parameters.Count < 1
-               || method.Parameters[0].Type.GetTypeElement() is not IInterface parameterInterface
-               || parameterInterface.ShortName != "IRequest"
-               || parameterInterface.GetContainingNamespace().ShortName != "MediatR"
-               || parameterInterface.TypeParametersCount != 1;
+        return declaredElement is IMethod { ShortName: "Send" } method
+               && method.Module.Name.StartsWith("MediatR")
+               && method.TypeParametersCount == 1
+               && method.ContainingType is IInterface @interface
+               && @interface.ShortName == "ISender"
+               && @interface.GetContainingNamespace().ShortName == "MediatR"
+               && method.Parameters.Count >= 1
+               && ((method.Parameters[0].Type.GetTypeElement() is IInterface parameterInterface
+                    && parameterInterface.ShortName == "IRequest"
+                    && parameterInterface.GetContainingNamespace().ShortName == "MediatR"
+                    && parameterInterface.TypeParametersCount == 1)
+                   || method.TypeParameters.Single().TypeConstraints.FirstOrDefault()
+                       ?.GetPresentableName(method.PresentationLanguage) == "IRequest");
     }
 }
