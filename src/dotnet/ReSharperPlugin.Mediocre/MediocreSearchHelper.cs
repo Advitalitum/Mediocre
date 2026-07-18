@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using JetBrains.Application.DataContext;
 using JetBrains.ReSharper.Feature.Services.Navigation.ContextNavigation;
@@ -31,17 +32,18 @@ public static class MediocreSearchHelper
         DeclaredElementTypeUsageInfo initialTarget,
         IDeclaredElement declaredElement)
     {
-        if (IsMediatRSendMethod(declaredElement) is false)
+        var mediatrISenderMethod = GetMediatrISenderMethod(declaredElement);
+        if (mediatrISenderMethod is MediatrISenderMethod.None)
         {
             return null;
         }
 
         var method = (IMethod) declaredElement;
 
-        var requestHandlerResponseType = initialTarget
+        var typeParameterType = initialTarget
             .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
 
-        if (requestHandlerResponseType is null or IInterface)
+        if (typeParameterType is null or IInterface)
         {
             return null;
         }
@@ -55,10 +57,11 @@ public static class MediocreSearchHelper
 
         var requestHandlerTypeElements = scope
             .GetAllShortNames()
-            .Where(s => s.StartsWith("IRequestHandler"))
+            .Where(s => s.StartsWith(GetHandlerInterfaceName(mediatrISenderMethod)))
             .SelectMany(scope.GetElementsByShortName)
             .Where(e => e is IInterface)
             .OfType<ITypeElement>()
+            .Where(x => HasAppropriateTypeParametersCount(x, mediatrISenderMethod))
             .ToArray();
 
         if (requestHandlerTypeElements.Any() is false)
@@ -75,33 +78,122 @@ public static class MediocreSearchHelper
             .Where(e => e is not null)
             .SelectMany(e =>
                 e.Methods
-                    .Where(x =>
-                        x.ShortName == "Handle"
-                        && (
-                            (x.ReturnType.IsGenericTask(out var responseType) && requestHandlerResponseType.Equals(responseType.GetTypeElement()))
-                            || (x.ReturnType.IsTask() && x.Parameters.Count >= 1 && requestHandlerResponseType.Equals(x.Parameters[0].Type.GetTypeElement()))
-                        )
-                    )
+                    .Where(x => x.ShortName == "Handle" &&
+                                GetMethodPredicate(x, typeParameterType, mediatrISenderMethod))
             )
             .FirstOrDefault();
 
         return resultDeclaredElement;
     }
 
-    private static bool IsMediatRSendMethod(IDeclaredElement declaredElement)
+    private static bool HasAppropriateTypeParametersCount(ITypeElement requestHandlerTypeElement,
+        MediatrISenderMethod mediatrISenderMethod)
     {
-        return declaredElement is IMethod { ShortName: "Send" } method
-               && method.Module.Name.StartsWith("MediatR")
-               && method.TypeParametersCount == 1
-               && method.ContainingType is IInterface @interface
-               && @interface.ShortName == "ISender"
-               && @interface.GetContainingNamespace().ShortName == "MediatR"
-               && method.Parameters.Count >= 1
-               && ((method.Parameters[0].Type.GetTypeElement() is IInterface parameterInterface
-                    && parameterInterface.ShortName == "IRequest"
-                    && parameterInterface.GetContainingNamespace().ShortName == "MediatR"
-                    && parameterInterface.TypeParametersCount == 1)
-                   || method.TypeParameters.Single().TypeConstraints.FirstOrDefault()
-                       ?.GetPresentableName(method.PresentationLanguage) == "IRequest");
+        var typeParametersCount = mediatrISenderMethod switch
+        {
+            MediatrISenderMethod.SendWithResponse or MediatrISenderMethod.CreateStream => 2,
+            MediatrISenderMethod.SendWithoutResponse => 1,
+            _ => throw new ArgumentOutOfRangeException(nameof(mediatrISenderMethod), mediatrISenderMethod, null)
+        };
+        return requestHandlerTypeElement.TypeParametersCount == typeParametersCount;
+    }
+
+    private static bool GetMethodPredicate(IMethod method, ITypeElement typeParameterType,
+        MediatrISenderMethod mediatrISenderMethod)
+    {
+        var result = mediatrISenderMethod switch
+        {
+            MediatrISenderMethod.SendWithResponse =>
+                method.ReturnType.IsGenericTask(out var responseType)
+                && typeParameterType.Equals(responseType.GetTypeElement()),
+
+            MediatrISenderMethod.SendWithoutResponse =>
+                method.ReturnType.IsTask()
+                && method.Parameters.Count >= 1
+                && typeParameterType.Equals(method.Parameters[0].Type.GetTypeElement()),
+
+            MediatrISenderMethod.CreateStream =>
+                method.ReturnType.IsIAsyncEnumerable()
+                && typeParameterType.Equals(method.ReturnType
+                    .GetGenericUnderlyingType(method.ReturnType.GetTypeElement()).GetTypeElement()),
+
+            _ => throw new ArgumentOutOfRangeException(nameof(mediatrISenderMethod), mediatrISenderMethod, null)
+        };
+
+        return result;
+    }
+
+    private static string GetHandlerInterfaceName(MediatrISenderMethod mediatrISenderMethod)
+    {
+        var result = mediatrISenderMethod switch
+        {
+            MediatrISenderMethod.SendWithResponse or MediatrISenderMethod.SendWithoutResponse => "IRequestHandler",
+            MediatrISenderMethod.CreateStream => "IStreamRequestHandler",
+            _ => throw new ArgumentOutOfRangeException(nameof(mediatrISenderMethod), mediatrISenderMethod, null)
+        };
+
+        return result;
+    }
+
+    private static MediatrISenderMethod GetMediatrISenderMethod(IDeclaredElement declaredElement)
+    {
+        var method = declaredElement as IMethod;
+        var isMediatrISenderGenericMethod = method is { ShortName: "Send" or "CreateStream" }
+                                            && method.Module.Name.StartsWith("MediatR")
+                                            && method.TypeParametersCount == 1
+                                            && method.ContainingType is IInterface @interface
+                                            && @interface.ShortName == "ISender"
+                                            && @interface.GetContainingNamespace().ShortName == "MediatR"
+                                            && method.Parameters.Count >= 1;
+
+        if (isMediatrISenderGenericMethod is false)
+        {
+            return MediatrISenderMethod.None;
+        }
+
+        var isSendWithResponse = method.ShortName == "Send"
+                                 && method.Parameters[0].Type.GetTypeElement() is IInterface sendParameterInterface
+                                 && sendParameterInterface.ShortName == "IRequest"
+                                 && sendParameterInterface.GetContainingNamespace().ShortName == "MediatR"
+                                 && sendParameterInterface.TypeParametersCount == 1;
+
+        if (isSendWithResponse)
+        {
+            return MediatrISenderMethod.SendWithResponse;
+        }
+
+        var isSendWithoutResponse = method.ShortName == "Send"
+                                    && method.TypeParameters
+                                        .Single()
+                                        .TypeConstraints
+                                        .FirstOrDefault()?
+                                        .GetPresentableName(method.PresentationLanguage) == "IRequest";
+
+        if (isSendWithoutResponse)
+        {
+            return MediatrISenderMethod.SendWithoutResponse;
+        }
+
+        var isCreateStreamMethod = method.ShortName == "CreateStream"
+                                   && method.Parameters[0].Type.GetTypeElement() is IInterface
+                                       createStreamParameterInterface
+                                   && createStreamParameterInterface.ShortName == "IStreamRequest"
+                                   && createStreamParameterInterface.GetContainingNamespace().ShortName == "MediatR"
+                                   && createStreamParameterInterface.TypeParametersCount == 1;
+
+        if (isCreateStreamMethod)
+        {
+            return MediatrISenderMethod.CreateStream;
+        }
+
+        return MediatrISenderMethod.None;
+    }
+
+    private enum MediatrISenderMethod
+    {
+        None,
+        SendWithResponse,
+        SendWithoutResponse,
+        CreateStream
     }
 }
