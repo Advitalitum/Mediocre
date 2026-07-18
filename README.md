@@ -1,3 +1,3 @@
 # Mediocre for Rider and ReSharper
 
-Finds RequestHandler when using Go To Declaration/Go To Implementation on mediator.Send method
+Finds corresponding IRequestHandler/IStreamRequestHandler implementation when using Go To Declaration/Go To Implementation on mediator.Send or mediator.CreateStream method
