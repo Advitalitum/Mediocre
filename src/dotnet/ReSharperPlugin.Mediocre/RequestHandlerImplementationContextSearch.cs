@@ -15,19 +15,9 @@ public class RequestHandlerImplementationContextSearch : ImplementationContextSe
         DeclaredElementTypeUsageInfo element,
         DeclaredElementTypeUsageInfo initialTarget)
     {
-        var declaredElement = element.DeclaredElement;
-
-        var resultDeclaredElement =
-            MediocreSearchHelper.GetRequestHandlerImplementationOrNull(initialTarget, declaredElement);
-
-        if (resultDeclaredElement is not null)
-        {
-            var searchDomain = SearchDomainContextUtil.GetSearchDomainContext(context).GetDefaultDomain().SearchDomain;
-
-            return new SearchImplementationsRequest(resultDeclaredElement, searchDomain);
-        }
-
-        return base.CreateSearchRequest(context, element, initialTarget);
+        var searchHandlerRequest = MediocreSearchHelper.CreateSearchHandlerRequestOrNull(context, element, initialTarget);
+        
+        return searchHandlerRequest ?? base.CreateSearchRequest(context, element, initialTarget);
     }
 
     protected override IEnumerable<DeclaredElementTypeUsageInfo> GetElementCandidates(IDataContext context,
@@ -41,29 +31,4 @@ public class RequestHandlerImplementationContextSearch : ImplementationContextSe
     }
 
     protected override bool IsExecuteImmediately { get; } = true;
-}
-
-[ShellFeaturePart]
-public class RequestHandlerDeclarationContextSearch : DefaultDeclarationSearchBase
-{
-    protected override bool IsExecuteImmediately { get; } = true;
-
-    protected override SearchDeclarationsRequest CreateSearchRequest(IDataContext context,
-        DeclaredElementTypeUsageInfo element,
-        DeclaredElementTypeUsageInfo initialTarget)
-    {
-        var declaredElement = element.DeclaredElement;
-
-        var resultDeclaredElement =
-            MediocreSearchHelper.GetRequestHandlerImplementationOrNull(initialTarget, declaredElement);
-
-        if (resultDeclaredElement is not null)
-        {
-            var searchDomain = SearchDomainContextUtil.GetSearchDomainContext(context).GetDefaultDomain().SearchDomain;
-
-            return new SearchImplementationsRequest(resultDeclaredElement, searchDomain);
-        }
-
-        return base.CreateSearchRequest(context, element, initialTarget);
-    }
 }

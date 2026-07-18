@@ -1,7 +1,8 @@
 using System.Linq;
+using JetBrains.Application.DataContext;
 using JetBrains.ReSharper.Feature.Services.Navigation.ContextNavigation;
+using JetBrains.ReSharper.Feature.Services.Navigation.Requests;
 using JetBrains.ReSharper.Psi;
-using JetBrains.ReSharper.Psi.CSharp;
 using JetBrains.ReSharper.Psi.Search;
 using JetBrains.ReSharper.Psi.Util;
 
@@ -9,7 +10,24 @@ namespace ReSharperPlugin.Mediocre;
 
 public static class MediocreSearchHelper
 {
-    public static IDeclaredElement GetRequestHandlerImplementationOrNull(
+    public static SearchImplementationsRequest CreateSearchHandlerRequestOrNull(IDataContext context,
+        DeclaredElementTypeUsageInfo element, DeclaredElementTypeUsageInfo initialTarget)
+    {
+        var declaredElement = element.DeclaredElement;
+
+        var resultDeclaredElement = GetRequestHandlerImplementationOrNull(initialTarget, declaredElement);
+
+        if (resultDeclaredElement is not null)
+        {
+            var searchDomain = SearchDomainContextUtil.GetSearchDomainContext(context).GetDefaultDomain().SearchDomain;
+
+            return new SearchImplementationsRequest(resultDeclaredElement, searchDomain);
+        }
+
+        return null;
+    }
+
+    private static IDeclaredElement GetRequestHandlerImplementationOrNull(
         DeclaredElementTypeUsageInfo initialTarget,
         IDeclaredElement declaredElement)
     {
@@ -18,7 +36,7 @@ public static class MediocreSearchHelper
             return null;
         }
 
-        var method = (IMethod)declaredElement;
+        var method = (IMethod) declaredElement;
 
         var requestHandlerResponseType = initialTarget
             .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
