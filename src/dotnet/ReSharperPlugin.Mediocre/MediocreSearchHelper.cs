@@ -62,8 +62,10 @@ public static class MediocreSearchHelper
             return null;
         }
 
-        if (typeParameterType is IInterface)
+        if (typeParameterType is IInterface { ShortName: "IRequest" } @interface && @interface.GetContainingNamespace().ShortName == "MediatR")
         {
+            // Cannot determine concrete command type, just return matching handler interface
+            
             // return requestHandlerTypeElements.Single().Methods.FirstOrDefault(x => x.ShortName == "Handle" &&
             //     method.ReturnType.IsTask()
             //     && method.Parameters.Count >= 1
