@@ -48,6 +48,44 @@ public static class MediocreSearchHelper
             return null;
         }
 
+        var requestHandlerTypeElement = GetRequestHandlerImplementationOrNull(method, mediatrISenderMethod);
+
+        if (requestHandlerTypeElement is null)
+        {
+            return null;
+        }
+
+        var requestHandlerInterfaceType = TypeFactory.CreateType(requestHandlerTypeElement);
+
+        var requestHandlerImplementations = declaredElement
+            .GetPsiServices()
+            .SingleThreadedFinder
+            .FindAllInheritors(requestHandlerInterfaceType);
+
+        if (typeParameterType is IInterface)
+        {
+            // return requestHandlerTypeElements.Single().Methods.FirstOrDefault(x => x.ShortName == "Handle" &&
+            //     method.ReturnType.IsTask()
+            //     && method.Parameters.Count >= 1
+            //     && method.Parameters[0].Type.GetTypeElement() is not null
+            //     && method.Parameters[0].Type.GetTypeElement().GetSuperTypes()
+            //         .Any(y => y.GetTypeElement() is not null && y.GetTypeElement().Equals(typeParameterType)));
+
+            return requestHandlerTypeElement;
+        }
+
+        var resultDeclaredElement = requestHandlerImplementations
+            .Select(target => target.GetTypeElement())
+            .Where(e => e is not null)
+            .Select(e => e.Methods.FirstOrDefault(x => GetMethodPredicate(x, typeParameterType, mediatrISenderMethod)))
+            .FirstOrDefault(m => m is not null);
+
+        return resultDeclaredElement;
+    }
+
+    private static ITypeElement GetRequestHandlerImplementationOrNull(IMethod method,
+        MediatrISenderMethod mediatrISenderMethod)
+    {
         var psiModule = method.Module;
 
         var scope = psiModule
@@ -64,38 +102,7 @@ public static class MediocreSearchHelper
             .Where(x => HasAppropriateTypeParametersCount(x, mediatrISenderMethod))
             .ToArray();
 
-        if (requestHandlerTypeElements.Any() is false)
-        {
-            return null;
-        }
-
-        var requestHandlerInterfaceTypes = requestHandlerTypeElements.Select(TypeFactory.CreateType);
-
-        var requestHandlerImplementations = requestHandlerInterfaceTypes
-            .SelectMany(x => declaredElement.GetPsiServices().SingleThreadedFinder.FindAllInheritors(x));
-
-        if (typeParameterType is IInterface)
-        {
-            // return requestHandlerTypeElements.Single().Methods.FirstOrDefault(x => x.ShortName == "Handle" &&
-            //     method.ReturnType.IsTask()
-            //     && method.Parameters.Count >= 1
-            //     && method.Parameters[0].Type.GetTypeElement() is not null
-            //     && method.Parameters[0].Type.GetTypeElement().GetSuperTypes()
-            //         .Any(y => y.GetTypeElement() != null && y.GetTypeElement().Equals(typeParameterType)));
-            
-            return requestHandlerTypeElements.Single();
-        }
-
-        var resultDeclaredElement = requestHandlerImplementations.Select(target => target.GetTypeElement())
-            .Where(e => e is not null)
-            .SelectMany(e =>
-                e.Methods
-                    .Where(x => x.ShortName == "Handle" &&
-                                GetMethodPredicate(x, typeParameterType, mediatrISenderMethod))
-            )
-            .FirstOrDefault();
-
-        return resultDeclaredElement;
+        return requestHandlerTypeElements.Length == 1 ? requestHandlerTypeElements.Single() : null;
     }
 
     private static bool HasAppropriateTypeParametersCount(ITypeElement requestHandlerTypeElement,
@@ -107,12 +114,18 @@ public static class MediocreSearchHelper
             MediatrISenderMethod.SendWithoutResponse => 1,
             _ => throw new ArgumentOutOfRangeException(nameof(mediatrISenderMethod), mediatrISenderMethod, null)
         };
+
         return requestHandlerTypeElement.TypeParametersCount == typeParametersCount;
     }
 
     private static bool GetMethodPredicate(IMethod method, ITypeElement typeParameterType,
         MediatrISenderMethod mediatrISenderMethod)
     {
+        if (method.ShortName != "Handle")
+        {
+            return false;
+        }
+        
         var result = mediatrISenderMethod switch
         {
             MediatrISenderMethod.SendWithResponse =>
