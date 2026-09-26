@@ -55,7 +55,7 @@ public static class MediocreSearchHelper
             return null;
         }
 
-        var requestHandlerTypeElement = GetRequestHandlerImplementationOrNull(method, mediatrISenderMethod);
+        var requestHandlerTypeElement = GetRequestHandlerTypeElementOrNull(method, mediatrISenderMethod);
 
         if (requestHandlerTypeElement is null)
         {
@@ -92,7 +92,7 @@ public static class MediocreSearchHelper
         return resultDeclaredElement;
     }
 
-    private static ITypeElement GetRequestHandlerImplementationOrNull(IMethod method,
+    private static ITypeElement GetRequestHandlerTypeElementOrNull(IMethod method,
         MediatrISenderMethod mediatrISenderMethod)
     {
         var fromCache = RequestHandlersCache.GetOrAdd((method.Module, mediatrISenderMethod), AddToCache);
