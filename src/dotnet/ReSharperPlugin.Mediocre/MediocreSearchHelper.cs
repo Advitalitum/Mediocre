@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using JetBrains.Application.DataContext;
 using JetBrains.ReSharper.Feature.Services.Navigation.ContextNavigation;
 using JetBrains.ReSharper.Feature.Services.Navigation.Requests;
 using JetBrains.ReSharper.Psi;
+using JetBrains.ReSharper.Psi.Modules;
 using JetBrains.ReSharper.Psi.Search;
 using JetBrains.ReSharper.Psi.Util;
 
@@ -11,6 +13,10 @@ namespace ReSharperPlugin.Mediocre;
 
 public static class MediocreSearchHelper
 {
+    private static readonly
+        ConcurrentDictionary<(IPsiModule Module, MediatrISenderMethod MediatrISenderMethod), ITypeElement>
+        RequestHandlersCache = new();
+
     public static SearchImplementationsRequest CreateSearchHandlerRequestOrNull(IDataContext context,
         DeclaredElementTypeUsageInfo element, DeclaredElementTypeUsageInfo initialTarget)
     {
@@ -33,6 +39,7 @@ public static class MediocreSearchHelper
         IDeclaredElement declaredElement)
     {
         var mediatrISenderMethod = GetMediatrISenderMethod(declaredElement);
+        
         if (mediatrISenderMethod is MediatrISenderMethod.None)
         {
             return null;
@@ -55,13 +62,6 @@ public static class MediocreSearchHelper
             return null;
         }
 
-        var requestHandlerInterfaceType = TypeFactory.CreateType(requestHandlerTypeElement);
-
-        var requestHandlerImplementations = declaredElement
-            .GetPsiServices()
-            .SingleThreadedFinder
-            .FindAllInheritors(requestHandlerInterfaceType);
-
         if (typeParameterType is IInterface)
         {
             // return requestHandlerTypeElements.Single().Methods.FirstOrDefault(x => x.ShortName == "Handle" &&
@@ -73,6 +73,13 @@ public static class MediocreSearchHelper
 
             return requestHandlerTypeElement;
         }
+
+        var requestHandlerInterfaceType = TypeFactory.CreateType(requestHandlerTypeElement);
+
+        var requestHandlerImplementations = declaredElement
+            .GetPsiServices()
+            .SingleThreadedFinder
+            .FindAllInheritors(requestHandlerInterfaceType);
 
         var resultDeclaredElement = requestHandlerImplementations
             .Select(target => target.GetTypeElement())
@@ -86,7 +93,15 @@ public static class MediocreSearchHelper
     private static ITypeElement GetRequestHandlerImplementationOrNull(IMethod method,
         MediatrISenderMethod mediatrISenderMethod)
     {
-        var psiModule = method.Module;
+        var fromCache = RequestHandlersCache.GetOrAdd((method.Module, mediatrISenderMethod), AddToCache);
+
+        return fromCache;
+    }
+
+    private static ITypeElement AddToCache((IPsiModule Module, MediatrISenderMethod MediatrISenderMethod) key)
+    {
+        var psiModule = key.Module;
+        var mediatrISenderMethod = key.MediatrISenderMethod;
 
         var scope = psiModule
             .GetPsiServices()
@@ -125,7 +140,7 @@ public static class MediocreSearchHelper
         {
             return false;
         }
-        
+
         var result = mediatrISenderMethod switch
         {
             MediatrISenderMethod.SendWithResponse =>
