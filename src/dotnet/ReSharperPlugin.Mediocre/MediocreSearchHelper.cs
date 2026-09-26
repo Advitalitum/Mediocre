@@ -43,7 +43,7 @@ public static class MediocreSearchHelper
         var typeParameterType = initialTarget
             .Substitution[method.TypeParameters.First()].GetScalarType()?.GetTypeElement();
 
-        if (typeParameterType is null or IInterface)
+        if (typeParameterType is null)
         {
             return null;
         }
@@ -73,6 +73,18 @@ public static class MediocreSearchHelper
 
         var requestHandlerImplementations = requestHandlerInterfaceTypes
             .SelectMany(x => declaredElement.GetPsiServices().SingleThreadedFinder.FindAllInheritors(x));
+
+        if (typeParameterType is IInterface)
+        {
+            // return requestHandlerTypeElements.Single().Methods.FirstOrDefault(x => x.ShortName == "Handle" &&
+            //     method.ReturnType.IsTask()
+            //     && method.Parameters.Count >= 1
+            //     && method.Parameters[0].Type.GetTypeElement() is not null
+            //     && method.Parameters[0].Type.GetTypeElement().GetSuperTypes()
+            //         .Any(y => y.GetTypeElement() != null && y.GetTypeElement().Equals(typeParameterType)));
+            
+            return requestHandlerTypeElements.Single();
+        }
 
         var resultDeclaredElement = requestHandlerImplementations.Select(target => target.GetTypeElement())
             .Where(e => e is not null)
